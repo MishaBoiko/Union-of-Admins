@@ -79,5 +79,13 @@ async def check_subscription(message: types.Message):
 if __name__ == '__main__':
     async def main():
         logger.info("Бот запущено")
-        await dp.start_polling(bot)
+        try:
+            # Спробуємо polling
+            logger.info("Запускаємо polling...")
+            await dp.start_polling(bot)
+        except Exception as e:
+            logger.error(f"Помилка при polling: {e}")
+            logger.info("Спробуємо webhook...")
+            # Якщо polling не працює, спробуємо webhook
+            await dp.start_polling(bot, skip_updates=True)
     asyncio.run(main())
