@@ -26,6 +26,9 @@ async def cmd_start(message: types.Message):
 
 @dp.message()
 async def check_subscription(message: types.Message):
+    # Логуємо ВСІ повідомлення для тестування
+    logger.info(f"Отримано повідомлення: від {message.from_user.id} у чаті {message.chat.id} типу {message.chat.type}")
+    
     # Перевіряємо, що це груповий чат
     if message.chat.type not in ["group", "supergroup"]:
         logger.info(f"Повідомлення не в групі: {message.chat.type}")
