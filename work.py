@@ -19,7 +19,7 @@ dp = Dispatcher()
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message):
     try:
-        await message.answer("Привіт! Я бот-модератор. Щоб писати в цьому чаті, підпишіться на канал {}".format(CHANNEL_ID))
+        await message.answer(".{}".format(CHANNEL_ID))
         logger.info(f"/start від {message.from_user.id}")
     except Exception as e:
         logger.error(f"Помилка у start handler: {e}")
