@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
+@dp.message(Command('start'))
+async def cmd_start(message: types.Message):
+    try:
+        await message.answer("Привіт! Я бот-модератор. Щоб писати в цьому чаті, підпишіться на канал {}".format(CHANNEL_ID))
+        logger.info(f"/start від {message.from_user.id}")
+    except Exception as e:
+        logger.error(f"Помилка у start handler: {e}")
+
 @dp.message()
 async def check_subscription(message: types.Message):
     # Перевіряємо, що це груповий чат
@@ -31,9 +39,14 @@ async def check_subscription(message: types.Message):
         else:
             await message.delete()
             await asyncio.sleep(0.5)
+            
+            # Перевіряємо наявність username
+            username = message.from_user.username
+            user_mention = f"@{username}" if username else f"користувач {user_id}"
+            
             await bot.send_message(
                 chat_id=chat_id,
-                text=f"🔒 @{message.from_user.username} чтобы писать в этом чате,пожалуйста,подпишитесь на канал {CHANNEL_ID}"
+                text=f"🔒 {user_mention} чтобы писать в этом чате, пожалуйста, подпишитесь на канал {CHANNEL_ID}"
             )
             await bot.restrict_chat_member(
                 chat_id=chat_id,
