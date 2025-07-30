@@ -19,13 +19,14 @@ dp = Dispatcher()
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message):
     try:
-        await message.answer(".{}".format(CHANNEL_ID))
+        await message.answer(".".format(CHANNEL_ID))
         logger.info(f"/start від {message.from_user.id}")
     except Exception as e:
         logger.error(f"Помилка у start handler: {e}")
 
 @dp.message()
 async def check_subscription(message: types.Message):
+    logger.info(f"message_thread_id: {message.message_thread_id}")
     # Перевіряємо, що це груповий чат
     if message.chat.type not in ["group", "supergroup"]:
         return
