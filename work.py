@@ -24,6 +24,8 @@ async def cmd_start(message: types.Message):
     except Exception as e:
         logger.error(f"Помилка у start handler: {e}")
 
+MAIN_THREAD_ID = 2  # ID головної гілки
+
 @dp.message()
 async def check_subscription(message: types.Message):
     logger.info(f"message_thread_id: {message.message_thread_id}")
@@ -47,7 +49,8 @@ async def check_subscription(message: types.Message):
             
             await bot.send_message(
                 chat_id=chat_id,
-                text=f"🔒 {user_mention} чтобы писать в этом чате, пожалуйста, подпишитесь на канал {CHANNEL_ID}"
+                text=f"🔒 {user_mention} чтобы писать в этом чате, пожалуйста, подпишитесь на канал {CHANNEL_ID}",
+                message_thread_id=MAIN_THREAD_ID
             )
             await bot.restrict_chat_member(
                 chat_id=chat_id,
