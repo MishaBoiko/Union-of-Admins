@@ -49,8 +49,7 @@ async def check_subscription(message: types.Message):
             
             await bot.send_message(
                 chat_id=chat_id,
-                text=f"🔒 {user_mention} чтобы писать в этом чате, пожалуйста, подпишитесь на канал {CHANNEL_ID}",
-                message_thread_id=MAIN_THREAD_ID
+                text=f"🔒 {user_mention} чтобы писать в этом чате, пожалуйста, подпишитесь на канал {CHANNEL_ID}"
             )
             await bot.restrict_chat_member(
                 chat_id=chat_id,
