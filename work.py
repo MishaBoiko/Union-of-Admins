@@ -22,8 +22,9 @@ class ChannelSetup(StatesGroup):
     waiting_for_channel = State()
     waiting_for_group = State()
 
-# Словарь для хранения каналов по группам
-CHANNELS = {}
+# Словарь для хранения каналов по пользователям и группам
+# Структура: {user_id: {group_id: channel_username}}
+USER_CHANNELS = {}
 
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -47,6 +48,8 @@ async def process_channel_username(message: types.Message, state: FSMContext):
 
 @dp.message(ChannelSetup.waiting_for_group)
 async def process_group_id(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    
     # Получаем сохраненный канал
     data = await state.get_data()
     channel_username = data.get('channel')
@@ -118,12 +121,20 @@ async def process_group_id(message: types.Message, state: FSMContext):
             await state.clear()
             return
         
-        # Сохраняем настройки
-        CHANNELS[group_id] = channel_username
+        # Инициализируем словарь для пользователя, если его нет
+        if user_id not in USER_CHANNELS:
+            USER_CHANNELS[user_id] = {}
+        
+        # Очищаем старые настройки для этой группы у этого пользователя и сохраняем новые
+        if group_id in USER_CHANNELS[user_id]:
+            old_channel = USER_CHANNELS[user_id][group_id]
+            logger.info(f"Пользователь {user_id} заменяет старый канал {old_channel} на новый {channel_username} для группы {group_id}")
+        
+        USER_CHANNELS[user_id][group_id] = channel_username
         
         await message.answer(f'✅ Настройки сохранены!\n\nГруппа: {chat_info.title}\nКанал: {channel_username}\n\nБот готов к работе в указанной группе.')
         await state.clear()
-        logger.info(f"Настройки сохранены: группа {group_id} -> канал {channel_username}")
+        logger.info(f"Настройки сохранены для пользователя {user_id}: группа {group_id} -> канал {channel_username}")
         
     except Exception as e:
         logger.error(f"Ошибка при настройке группы: {e}")
@@ -137,13 +148,14 @@ async def check_subscription(message: types.Message):
     
     chat_id = message.chat.id
     
-    # Проверяем, установлен ли канал для этой группы
-    if chat_id not in CHANNELS:
-        logger.info(f"Канал не установлен для чата {chat_id}")
+    # Проверяем, установлен ли канал для этой группы у этого пользователя
+    user_id = message.from_user.id
+    if user_id not in USER_CHANNELS or chat_id not in USER_CHANNELS[user_id]:
+        logger.info(f"Канал не установлен для пользователя {user_id} в чате {chat_id}")
         return
     
-    channel_id = CHANNELS[chat_id]
-    logger.info(f"Используем канал {channel_id} для чата {chat_id}")
+    channel_id = USER_CHANNELS[user_id][chat_id]
+    logger.info(f"Используем канал {channel_id} для пользователя {user_id} в чате {chat_id}")
     
     logger.info(f"message_thread_id: {message.message_thread_id}")
     # Проверяем, что это групповой чат
@@ -152,7 +164,6 @@ async def check_subscription(message: types.Message):
         return
     
     logger.info(f"Обрабатываем сообщение в группе {chat_id}")
-    user_id = message.from_user.id
     try:
         logger.info(f"Проверяем подписку пользователя {user_id} на канал {channel_id}")
         
