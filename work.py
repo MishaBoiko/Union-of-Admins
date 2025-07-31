@@ -53,16 +53,45 @@ async def process_group_id(message: types.Message, state: FSMContext):
     
     # Определяем ID группы
     group_id = None
+    group_title = None
     
     if message.forward_from_chat:
         # Если переслано сообщение из группы
         group_id = message.forward_from_chat.id
         group_title = message.forward_from_chat.title
-    elif message.text and message.text.isdigit():
-        # Если введен ID группы
-        group_id = int(message.text)
+        logger.info(f"Получена пересланная группа: {group_title} (ID: {group_id})")
+    elif message.text:
+        # Проверяем, является ли текст ссылкой на группу
+        if 't.me/' in message.text or 'telegram.me/' in message.text:
+            try:
+                # Извлекаем username из ссылки
+                if 't.me/' in message.text:
+                    username = message.text.split('t.me/')[-1].split('/')[0]
+                else:
+                    username = message.text.split('telegram.me/')[-1].split('/')[0]
+                
+                # Убираем @ если есть
+                if username.startswith('@'):
+                    username = username[1:]
+                
+                # Получаем информацию о чате
+                chat_info = await bot.get_chat(f"@{username}")
+                group_id = chat_info.id
+                group_title = chat_info.title
+                logger.info(f"Получена группа по ссылке: {group_title} (ID: {group_id})")
+            except Exception as e:
+                logger.error(f"Ошибка при обработке ссылки на группу: {e}")
+                await message.answer('❌ Не удалось получить информацию о группе по ссылке. Попробуйте переслать сообщение из группы или ввести ID группы.')
+                return
+        elif message.text.isdigit():
+            # Если введен ID группы
+            group_id = int(message.text)
+            logger.info(f"Получен ID группы: {group_id}")
+        else:
+            await message.answer('Пожалуйста, перешлите сообщение из группы, отправьте ссылку на группу или введите ID группы.')
+            return
     else:
-        await message.answer('Пожалуйста, перешлите сообщение из группы или введите ID группы.')
+        await message.answer('Пожалуйста, перешлите сообщение из группы, отправьте ссылку на группу или введите ID группы.')
         return
     
     try:
