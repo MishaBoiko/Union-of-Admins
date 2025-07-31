@@ -39,16 +39,11 @@ async def process_channel_username(message: types.Message, state: FSMContext):
     if not channel_username.startswith('@'):
         channel_username = '@' + channel_username
     
-    try:
-        # Проверяем, существует ли канал
-        chat = await bot.get_chat(channel_username)
-        CHANNEL_ID = channel_username
-        await message.answer(f'Канал {CHANNEL_ID} успешно установлен! Бот готов к работе.')
-        await state.clear()
-        logger.info(f"Канал установлен: {CHANNEL_ID} пользователем {message.from_user.id}")
-    except Exception as e:
-        await message.answer(f'Ошибка: канал {channel_username} не найден. Попробуйте еще раз.')
-        logger.error(f"Ошибка при установке канала: {e}")
+    # Сохраняем канал без проверки
+    CHANNEL_ID = channel_username
+    await message.answer(f'Канал {CHANNEL_ID} установлен! Бот готов к работе.\n\nПримечание: для корректной работы убедитесь, что бот добавлен в канал {CHANNEL_ID} как администратор.')
+    await state.clear()
+    logger.info(f"Канал установлен: {CHANNEL_ID} пользователем {message.from_user.id}")
 
 @dp.message()
 async def check_subscription(message: types.Message):
