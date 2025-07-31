@@ -3,50 +3,77 @@ import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ChatPermissions
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 import asyncio
 
-# Отримуємо змінні середовища або використовуємо значення за замовчуванням
+# Получаем переменные окружения или используем значения по умолчанию
 API_TOKEN = os.getenv('API_TOKEN', '7739860939:AAFvk9wdbdpCJ5L17WSb7YkaORGU09LTsDE')
-CHANNEL_ID = os.getenv('CHANNEL_ID', '@shifuweb3')
 
-# Налаштування логування
+# Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-@dp.message(Command('start'))
-async def cmd_start(message: types.Message):
-    try:
-        await message.answer(".".format(CHANNEL_ID))
-        logger.info(f"/start від {message.from_user.id}")
-    except Exception as e:
-        logger.error(f"Помилка у start handler: {e}")
+# Состояния для FSM
+class ChannelSetup(StatesGroup):
+    waiting_for_channel = State()
 
-MAIN_THREAD_ID = 2  # ID головної гілки
+# Глобальная переменная для сохранения канала
+CHANNEL_ID = None
+
+@dp.message(Command('start'))
+async def cmd_start(message: types.Message, state: FSMContext):
+    await message.answer('Введите ЮЗ канала на который нужно ОП')
+    await state.set_state(ChannelSetup.waiting_for_channel)
+    logger.info(f"/start от {message.from_user.id}")
+
+@dp.message(ChannelSetup.waiting_for_channel)
+async def process_channel_username(message: types.Message, state: FSMContext):
+    global CHANNEL_ID
+    channel_username = message.text.strip()
+    
+    # Проверяем, начинается ли с @
+    if not channel_username.startswith('@'):
+        channel_username = '@' + channel_username
+    
+    try:
+        # Проверяем, существует ли канал
+        chat = await bot.get_chat(channel_username)
+        CHANNEL_ID = channel_username
+        await message.answer(f'Канал {CHANNEL_ID} успешно установлен! Бот готов к работе.')
+        await state.clear()
+        logger.info(f"Канал установлен: {CHANNEL_ID} пользователем {message.from_user.id}")
+    except Exception as e:
+        await message.answer(f'Ошибка: канал {channel_username} не найден. Попробуйте еще раз.')
+        logger.error(f"Ошибка при установке канала: {e}")
 
 @dp.message()
 async def check_subscription(message: types.Message):
+    global CHANNEL_ID
+    
+    # Проверяем, установлен ли канал
+    if CHANNEL_ID is None:
+        return
+    
     logger.info(f"message_thread_id: {message.message_thread_id}")
-    # Перевіряємо, що це груповий чат
+    # Проверяем, что это групповой чат
     if message.chat.type not in ["group", "supergroup"]:
         return
     user_id = message.from_user.id
     chat_id = message.chat.id
     try:
         member = await bot.get_chat_member(CHANNEL_ID, user_id)
-        logger.info(f"Користувач {user_id} статус у каналі {CHANNEL_ID}: {member.status}")
+        logger.info(f"Пользователь {user_id} статус в канале {CHANNEL_ID}: {member.status}")
         if member.status in ['member', 'administrator', 'creator']:
-            return  # Підписаний — нічого не робимо
+            return  # Подписан — ничего не делаем
         else:
             await message.delete()
             await asyncio.sleep(0.5)
-            
-            # Перевіряємо наявність username
             username = message.from_user.username
-            user_mention = f"@{username}" if username else f"користувач {user_id}"
-            
+            user_mention = f"@{username}" if username else f"пользователь {user_id}"
             await bot.send_message(
                 chat_id=chat_id,
                 text=f"🔒 {user_mention} чтобы писать в этом чате, пожалуйста, подпишитесь на канал {CHANNEL_ID}"
@@ -56,12 +83,12 @@ async def check_subscription(message: types.Message):
                 user_id=user_id,
                 permissions=ChatPermissions(can_send_messages=False)
             )
-            logger.info(f"Обмежено користувача {user_id} у чаті {chat_id}")
+            logger.info(f"Ограничен пользователь {user_id} в чате {chat_id}")
     except Exception as e:
-        logger.error(f"Помилка при перевірці підписки або обробці повідомлення: {e}")
+        logger.error(f"Ошибка при проверке подписки или обработке сообщения: {e}")
 
 if __name__ == '__main__':
     async def main():
-        logger.info("Бот запущено")
+        logger.info("Бот запущен")
         await dp.start_polling(bot)
     asyncio.run(main())
