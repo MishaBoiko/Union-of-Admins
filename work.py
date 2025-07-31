@@ -20,6 +20,7 @@ dp = Dispatcher()
 # Состояния для FSM
 class ChannelSetup(StatesGroup):
     waiting_for_channel = State()
+    waiting_for_group = State()
 
 # Словарь для хранения каналов по группам
 CHANNELS = {}
@@ -32,18 +33,73 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @dp.message(ChannelSetup.waiting_for_channel)
 async def process_channel_username(message: types.Message, state: FSMContext):
-    chat_id = message.chat.id
     channel_username = message.text.strip()
     
     # Проверяем, начинается ли с @
     if not channel_username.startswith('@'):
         channel_username = '@' + channel_username
     
-    # Сохраняем канал для конкретной группы
-    CHANNELS[chat_id] = channel_username
-    await message.answer(f'Канал {channel_username} установлен для этой группы! Бот готов к работе.\n\nПримечание: для корректной работы убедитесь, что бот добавлен в канал {channel_username} как администратор.')
-    await state.clear()
-    logger.info(f"Канал установлен для чата {chat_id}: {channel_username} пользователем {message.from_user.id}")
+    # Сохраняем канал во временное хранилище
+    await state.update_data(channel=channel_username)
+    await message.answer(f'Канал {channel_username} принят. Теперь отправьте ID группы где бот должен работать (или перешлите сообщение из группы).')
+    await state.set_state(ChannelSetup.waiting_for_group)
+    logger.info(f"Канал принят: {channel_username} пользователем {message.from_user.id}")
+
+@dp.message(ChannelSetup.waiting_for_group)
+async def process_group_id(message: types.Message, state: FSMContext):
+    # Получаем сохраненный канал
+    data = await state.get_data()
+    channel_username = data.get('channel')
+    
+    # Определяем ID группы
+    group_id = None
+    
+    if message.forward_from_chat:
+        # Если переслано сообщение из группы
+        group_id = message.forward_from_chat.id
+        group_title = message.forward_from_chat.title
+    elif message.text and message.text.isdigit():
+        # Если введен ID группы
+        group_id = int(message.text)
+    else:
+        await message.answer('Пожалуйста, перешлите сообщение из группы или введите ID группы.')
+        return
+    
+    try:
+        # Проверяем доступ к группе
+        chat_info = await bot.get_chat(group_id)
+        logger.info(f"Группа найдена: {chat_info.title} (ID: {group_id})")
+        
+        # Проверяем права бота в группе
+        bot_member = await bot.get_chat_member(group_id, bot.id)
+        logger.info(f"Бот в группе {group_id}: {bot_member.status}")
+        
+        if bot_member.status not in ['administrator', 'creator']:
+            await message.answer(f'⚠️ Бот должен быть администратором в группе "{chat_info.title}". Добавьте бота как администратора и попробуйте снова.')
+            await state.clear()
+            return
+        
+        # Проверяем доступ к каналу
+        try:
+            channel_info = await bot.get_chat(channel_username)
+            logger.info(f"Канал найден: {channel_info.title}")
+        except Exception as e:
+            logger.warning(f"Не удалось получить доступ к каналу {channel_username}: {e}")
+            await message.answer(f'⚠️ Не удалось получить доступ к каналу {channel_username}. Убедитесь, что бот добавлен в канал.')
+            await state.clear()
+            return
+        
+        # Сохраняем настройки
+        CHANNELS[group_id] = channel_username
+        
+        await message.answer(f'✅ Настройки сохранены!\n\nГруппа: {chat_info.title}\nКанал: {channel_username}\n\nБот готов к работе в указанной группе.')
+        await state.clear()
+        logger.info(f"Настройки сохранены: группа {group_id} -> канал {channel_username}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при настройке группы: {e}")
+        await message.answer(f'❌ Ошибка: не удалось получить доступ к группе. Убедитесь, что:\n1. ID группы правильный\n2. Бот добавлен в группу\n3. У бота есть права администратора')
+        await state.clear()
 
 @dp.message()
 async def check_subscription(message: types.Message):
@@ -70,8 +126,20 @@ async def check_subscription(message: types.Message):
     user_id = message.from_user.id
     try:
         logger.info(f"Проверяем подписку пользователя {user_id} на канал {channel_id}")
+        
+        # Проверяем, может ли бот получить информацию о канале
+        try:
+            chat_info = await bot.get_chat(channel_id)
+            logger.info(f"Канал {channel_id} найден: {chat_info.title}")
+        except Exception as e:
+            logger.error(f"Бот не может получить доступ к каналу {channel_id}: {e}")
+            await message.answer(f"⚠️ Бот не может проверить подписку на канал {channel_id}. Убедитесь, что бот добавлен в канал как администратор.")
+            return
+        
+        # Проверяем подписку пользователя
         member = await bot.get_chat_member(channel_id, user_id)
         logger.info(f"Пользователь {user_id} статус в канале {channel_id}: {member.status}")
+        
         if member.status in ['member', 'administrator', 'creator']:
             logger.info(f"Пользователь {user_id} подписан, ничего не делаем")
             return  # Подписан — ничего не делаем
