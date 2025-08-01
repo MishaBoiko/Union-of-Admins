@@ -38,13 +38,14 @@ def save_user_channels(data):
 
 class ChannelSetup(StatesGroup):
     waiting_for_group_id = State()
+    waiting_for_channel_username = State()
 
 @dp.message(Command("start"))
-async def set_channel_command(message: types.Message, state: FSMContext):
+async def start(message: types.Message, state: FSMContext):
     if message.chat.type != "private":
         return await message.reply("⚠️ Ця команда працює лише в особистих повідомленнях боту.")
     
-    await message.answer("👥 Відправ ID групи (можеш переслати будь-яке повідомлення з чату).")
+    await message.answer("👥 Перешли будь-яке повідомлення з групи, де бот адміністратор.")
     await state.set_state(ChannelSetup.waiting_for_group_id)
 
 @dp.message(ChannelSetup.waiting_for_group_id)
@@ -53,18 +54,25 @@ async def process_group_id(message: types.Message, state: FSMContext):
         return await message.reply("❌ Це не схоже на переслане повідомлення з групи.")
 
     group_id = message.forward_from_chat.id
+    await state.update_data(group_id=group_id)
+    await state.set_state(ChannelSetup.waiting_for_channel_username)
+    await message.answer("📢 Тепер введи юзернейм каналу для обов'язкової підписки (наприклад, @mychannel).")
+
+@dp.message(ChannelSetup.waiting_for_channel_username)
+async def process_channel_username(message: types.Message, state: FSMContext):
+    if not message.text.startswith("@"):
+        return await message.reply("❌ Введи правильний юзернейм (починається з @).")
+
+    data = await state.get_data()
+    group_id = data.get("group_id")
+    channel_username = message.text.strip()
+
+    user_channels = load_user_channels()
+    user_channels[str(group_id)] = channel_username
+    save_user_channels(user_channels)
+
     await state.clear()
-
-    await message.answer(f"✅ Відмінно! Тепер введи юзернейм каналу для підписки (наприклад, @mychannel).")
-
-    @dp.message(F.text.startswith("@"))
-    async def process_channel_username(m: types.Message):
-        channel_username = m.text.strip()
-        user_channels = load_user_channels()
-        user_channels[str(group_id)] = channel_username
-        save_user_channels(user_channels)
-        await m.answer(f"✅ Канал {channel_username} прив'язано до групи {group_id}!")
-        dp.message.unregister(process_channel_username)
+    await message.answer(f"✅ Канал {channel_username} прив'язано до групи {group_id}!")
 
 @dp.message()
 async def check_subscription(message: types.Message):
