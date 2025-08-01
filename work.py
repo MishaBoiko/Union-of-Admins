@@ -1,120 +1,123 @@
 import logging
-import os
 import json
-from pathlib import Path
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ChatPermissions
+import os
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram import F
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramBadRequest
 import asyncio
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+API_TOKEN = os.getenv("API_TOKEN", "ВАШ_ТОКЕН")
 
-API_TOKEN = '7739860939:AAFvk9wdbdpCJ5L17WSb7YkaORGU09LTsDE'
+bot = Bot(token=API_TOKEN, parse_mode="HTML")
+dp = Dispatcher(storage=MemoryStorage())
 
+DB_FILE = "db.json"
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-
-DATA_FILE = Path("db.json")
-
-def load_user_channels():
-    if DATA_FILE.exists():
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            logger.warning("⚠️ JSON пошкоджений або порожній. Створюю новий...")
-            DATA_FILE.write_text("{}", encoding="utf-8")
-            return {}
-    return {}
-
-def save_user_channels(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.flush()
-
-class ChannelSetup(StatesGroup):
-    waiting_for_group_id = State()
-    waiting_for_channel_username = State()
-
-@dp.message(Command("start"))
-async def start(message: types.Message, state: FSMContext):
-    if message.chat.type != "private":
-        return await message.reply("⚠️ Ця команда працює лише в особистих повідомленнях боту.")
-    
-    await message.answer("👥 Перешли будь-яке повідомлення з групи, де бот адміністратор.")
-    await state.set_state(ChannelSetup.waiting_for_group_id)
-
-@dp.message(ChannelSetup.waiting_for_group_id)
-async def process_group_id(message: types.Message, state: FSMContext):
-    if not message.forward_from_chat or message.forward_from_chat.type not in ['group', 'supergroup']:
-        return await message.reply("❌ Це не схоже на переслане повідомлення з групи.")
-
-    group_id = message.forward_from_chat.id
-    await state.update_data(group_id=group_id)
-    await state.set_state(ChannelSetup.waiting_for_channel_username)
-    await message.answer("📢 Тепер введи юзернейм каналу для обов'язкової підписки (наприклад, @mychannel).")
-
-@dp.message(ChannelSetup.waiting_for_channel_username)
-async def process_channel_username(message: types.Message, state: FSMContext):
-    if not message.text.startswith("@"):
-        return await message.reply("❌ Введи правильний юзернейм (починається з @).")
-
-    data = await state.get_data()
-    group_id = data.get("group_id")
-    channel_username = message.text.strip()
-
-    user_channels = load_user_channels()
-    user_channels[str(group_id)] = channel_username
-    save_user_channels(user_channels)
-
-    await state.clear()
-    await message.answer(f"✅ Канал {channel_username} прив'язано до групи {group_id}!")
-
-@dp.message()
-async def check_subscription(message: types.Message):
-    if message.chat.type not in ['group', 'supergroup']:
-        return
-
-    chat_id = str(message.chat.id)
-    user_id = message.from_user.id
-
-    user_channels = load_user_channels()
-    if chat_id not in user_channels:
-        return
-
-    channel_username = user_channels[chat_id]
-
+def load_db():
     try:
-        await bot.get_chat(channel_username)
-        member = await bot.get_chat_member(channel_username, user_id)
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
 
-        if member.status in ['member', 'administrator', 'creator']:
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+class LinkStates(StatesGroup):
+    waiting_for_channel = State()
+    waiting_for_group = State()
+
+# /start — початок діалогу
+@dp.message(Command("start"))
+async def start_cmd(message: types.Message, state: FSMContext):
+    await message.answer("👋 Надішли посилання на канал у форматі <code>@назва_каналу</code>")
+    await state.set_state(LinkStates.waiting_for_channel)
+
+# Отримуємо канал
+@dp.message(LinkStates.waiting_for_channel)
+async def process_channel(message: types.Message, state: FSMContext):
+    channel = message.text.strip()
+    if not channel.startswith("@"):
+        await message.answer("❗ Це не схоже на посилання @каналу. Спробуй ще раз.")
+        return
+    await state.update_data(channel=channel)
+    await message.answer("🔗 Тепер надішли посилання на групу у форматі <code>https://t.me/назва_групи</code>")
+    await state.set_state(LinkStates.waiting_for_group)
+
+# Отримуємо групу і зберігаємо
+@dp.message(LinkStates.waiting_for_group)
+async def process_group(message: types.Message, state: FSMContext):
+    group_link = message.text.strip()
+    if not group_link.startswith("https://t.me/"):
+        await message.answer("❗ Це не схоже на посилання групи. Спробуй ще раз.")
+        return
+
+    group_username = group_link.replace("https://t.me/", "")
+    try:
+        group_chat = await bot.get_chat(group_username)
+        if group_chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+            await message.answer("❌ Це не група.")
             return
 
-        await message.delete()
+        data = await state.get_data()
+        group_id = str(group_chat.id)
+        db = load_db()
+        db[group_id] = {
+            "required_channel": data["channel"]
+        }
+        save_db(db)
 
-        username = message.from_user.username
-        mention = f"@{username}" if username else f"користувач {user_id}"
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=f"🔒 {mention}, підпишіться на канал {channel_username}, щоб писати в цьому чаті."
+        await message.answer(
+            f"✅ Прив’язка успішна:\n"
+            f"Група: <b>{group_chat.title}</b>\n"
+            f"Канал: {data['channel']}"
         )
+        await state.clear()
+    except TelegramBadRequest:
+        await message.answer("❌ Не вдалося знайти групу. Перевір, чи доданий бот туди як адмін.")
 
-        await bot.restrict_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id,
-            permissions=ChatPermissions(can_send_messages=False)
-        )
+# Перевірка підписки в групі
+@dp.message()
+async def check_sub(message: types.Message):
+    if message.chat.type not in [ChatType.SUPERGROUP, ChatType.GROUP]:
+        return
 
-    except Exception as e:
-        logger.error(f"❌ Помилка перевірки підписки: {e}")
+    db = load_db()
+    group_id = str(message.chat.id)
 
+    if group_id not in db:
+        return
+
+    required_channel = db[group_id]["required_channel"]
+    try:
+        member = await bot.get_chat_member(required_channel, message.from_user.id)
+        if member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED]:
+            raise Exception("Not subscribed")
+    except:
+        try:
+            await message.delete()
+            await message.answer(
+                f"🔒 Щоб писати в цій групі, підпишись на {required_channel}",
+                reply_markup=types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [types.InlineKeyboardButton(
+                            text="🔗 Підписатися",
+                            url=f"https://t.me/{required_channel.replace('@', '')}"
+                        )]
+                    ]
+                )
+            )
+        except:
+            pass
+
+# Запуск
 async def main():
+    logging.basicConfig(level=logging.INFO)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
