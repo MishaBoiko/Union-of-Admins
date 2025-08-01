@@ -4,15 +4,14 @@ import json
 from pathlib import Path
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ChatPermissions
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.filters import CommandObject
 import asyncio
 
 # === Конфігурація ===
 API_TOKEN = os.getenv('API_TOKEN', '7739860939:AAFvk9wdbdpCJ5L17WSb7YkaORGU09LTsDE')
-DATA_FILE = Path("user_channels.json")
+DB_FILE = Path("db.json")
 
 # === Логування ===
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,15 +26,15 @@ class ChannelSetup(StatesGroup):
     waiting_for_channel = State()
     waiting_for_group = State()
 
-# === JSON-збереження ===
+# === JSON збереження ===
 def load_user_channels():
-    if DATA_FILE.exists():
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
+    if DB_FILE.exists():
+        with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 def save_user_channels(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
+    with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 USER_CHANNELS = load_user_channels()
@@ -75,7 +74,7 @@ async def process_group_id(message: types.Message, state: FSMContext):
                 chat_info = await bot.get_chat(f"@{username}")
                 group_id = chat_info.id
                 group_title = chat_info.title
-            except Exception as e:
+            except Exception:
                 await message.answer('❌ Не удалось получить информацию о группе.')
                 return
         elif message.text.isdigit():
@@ -97,7 +96,7 @@ async def process_group_id(message: types.Message, state: FSMContext):
 
         try:
             await bot.get_chat(channel_username)
-        except Exception as e:
+        except Exception:
             await message.answer(f'⚠️ Бот не может получить доступ к каналу {channel_username}.')
             await state.clear()
             return
@@ -111,6 +110,7 @@ async def process_group_id(message: types.Message, state: FSMContext):
         await message.answer(f'✅ Сохранено!\nГруппа: {group_info.title}\nКанал: {channel_username}')
         await state.clear()
     except Exception as e:
+        logger.exception(e)
         await message.answer('❌ Не удалось сохранить настройки.')
         await state.clear()
 
@@ -146,7 +146,6 @@ async def check_subscription(message: types.Message):
         )
     except Exception as e:
         logger.error(f"Ошибка при проверке подписки: {e}")
-
 
 # === Запуск ===
 if __name__ == '__main__':
