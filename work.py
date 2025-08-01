@@ -43,6 +43,7 @@ USER_CHANNELS = load_user_channels()
 # === Команди ===
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer('Введите ЮЗ канала на который нужно ОП')
     await state.set_state(ChannelSetup.waiting_for_channel)
 
@@ -146,33 +147,6 @@ async def check_subscription(message: types.Message):
     except Exception as e:
         logger.error(f"Ошибка при проверке подписки: {e}")
 
-@dp.message(Command("check_channel"))
-async def check_channel(message: types.Message, command: CommandObject):
-    args = command.args
-    user_id = message.from_user.id
-
-    if not args:
-        await message.answer("ℹ️ Використання: /check_channel @channel_username або /check_channel -1001234567890")
-        return
-
-    channel_input = args.strip()
-
-    # Перевіряємо доступ до каналу
-    try:
-        chat = await bot.get_chat(channel_input)
-        channel_id = chat.id
-        channel_title = chat.title
-        await message.answer(f"✅ Бот має доступ до каналу <b>{channel_title}</b> ({channel_id})")
-    except Exception as e:
-        await message.answer(f"❌ Бот не має доступу до каналу {channel_input}\nПомилка: <code>{type(e).__name__}</code>")
-        return
-
-    # Перевіряємо, чи бот може дістати ваш статус
-    try:
-        member = await bot.get_chat_member(channel_input, user_id)
-        await message.answer(f"👤 Ваш статус у каналі: <b>{member.status}</b>")
-    except Exception as e:
-        await message.answer(f"⚠️ Бот не може перевірити вашу підписку\nПомилка: <code>{type(e).__name__}</code>")
 
 # === Запуск ===
 if __name__ == '__main__':
