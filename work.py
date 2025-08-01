@@ -49,17 +49,17 @@ async def process_channel_username(message: types.Message, state: FSMContext):
 @dp.message(ChannelSetup.waiting_for_group)
 async def process_group_id(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    
+
     # Получаем сохраненный канал
     data = await state.get_data()
     channel_username = data.get('channel')
-    
+    logger.info(f"FSM DATA: {data}, channel_username: {channel_username}")
+
     # Определяем ID группы
     group_id = None
     group_title = None
-    
+
     if message.forward_from_chat:
-        # Если переслано сообщение из группы
         group_id = message.forward_from_chat.id
         group_title = message.forward_from_chat.title
         logger.info(f"Получена пересланная группа: {group_title} (ID: {group_id})")
@@ -69,15 +69,11 @@ async def process_group_id(message: types.Message, state: FSMContext):
             try:
                 # Извлекаем username из ссылки
                 if 't.me/' in message.text:
-                    username = message.text.split('t.me/')[-1].split('/')[0]
+                    username = message.text.split('t.me/')[-1].split('/')[0].split('?')[0]
                 else:
-                    username = message.text.split('telegram.me/')[-1].split('/')[0]
-                
-                # Убираем @ если есть
+                    username = message.text.split('telegram.me/')[-1].split('/')[0].split('?')[0]
                 if username.startswith('@'):
                     username = username[1:]
-                
-                # Получаем информацию о чате
                 chat_info = await bot.get_chat(f"@{username}")
                 group_id = chat_info.id
                 group_title = chat_info.title
@@ -87,7 +83,6 @@ async def process_group_id(message: types.Message, state: FSMContext):
                 await message.answer('❌ Не удалось получить информацию о группе по ссылке. Попробуйте переслать сообщение из группы или ввести ID группы.')
                 return
         elif message.text.isdigit():
-            # Если введен ID группы
             group_id = int(message.text)
             logger.info(f"Получен ID группы: {group_id}")
         else:
@@ -96,46 +91,39 @@ async def process_group_id(message: types.Message, state: FSMContext):
     else:
         await message.answer('Пожалуйста, перешлите сообщение из группы, отправьте ссылку на группу или введите ID группы.')
         return
-    
+
+    logger.info(f"Пробуем получить доступ к группе {group_id} и каналу {channel_username}")
+
     try:
-        # Проверяем доступ к группе
         chat_info = await bot.get_chat(group_id)
         logger.info(f"Группа найдена: {chat_info.title} (ID: {group_id})")
-        
-        # Проверяем права бота в группе
         bot_member = await bot.get_chat_member(group_id, bot.id)
         logger.info(f"Бот в группе {group_id}: {bot_member.status}")
-        
+
         if bot_member.status not in ['administrator', 'creator']:
-            await message.answer(f'⚠️ Бот должен быть администратором в группе "{chat_info.title}". Добавьте бота как администратора и попробуйте снова.')
+            await message.answer(f'⚠️ Бот должен быть администратором в группе \"{chat_info.title}\". Добавьте бота как администратора и попробуйте снова.')
             await state.clear()
             return
-        
+
         # Проверяем доступ к каналу
         try:
             channel_info = await bot.get_chat(channel_username)
             logger.info(f"Канал найден: {channel_info.title}")
         except Exception as e:
-            logger.warning(f"Не удалось получить доступ к каналу {channel_username}: {e}")
+            logger.error(f"Не удалось получить доступ к каналу {channel_username}: {e}")
             await message.answer(f'⚠️ Не удалось получить доступ к каналу {channel_username}. Убедитесь, что бот добавлен в канал.')
             await state.clear()
             return
-        
-        # Инициализируем словарь для пользователя, если его нет
+
+        # Сохраняем настройки
         if user_id not in USER_CHANNELS:
             USER_CHANNELS[user_id] = {}
-        
-        # Очищаем старые настройки для этой группы у этого пользователя и сохраняем новые
-        if group_id in USER_CHANNELS[user_id]:
-            old_channel = USER_CHANNELS[user_id][group_id]
-            logger.info(f"Пользователь {user_id} заменяет старый канал {old_channel} на новый {channel_username} для группы {group_id}")
-        
         USER_CHANNELS[user_id][group_id] = channel_username
-        
+
         await message.answer(f'✅ Настройки сохранены!\n\nГруппа: {chat_info.title}\nКанал: {channel_username}\n\nБот готов к работе в указанной группе.')
         await state.clear()
         logger.info(f"Настройки сохранены для пользователя {user_id}: группа {group_id} -> канал {channel_username}")
-        
+
     except Exception as e:
         logger.error(f"Ошибка при настройке группы: {e}")
         await message.answer(f'❌ Ошибка: не удалось получить доступ к группе. Убедитесь, что:\n1. ID группы правильный\n2. Бот добавлен в группу\n3. У бота есть права администратора')
