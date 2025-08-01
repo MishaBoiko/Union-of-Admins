@@ -39,7 +39,7 @@ def save_user_channels(data):
 class ChannelSetup(StatesGroup):
     waiting_for_group_id = State()
 
-@dp.message(Command("setchannel"))
+@dp.message(Command("start"))
 async def set_channel_command(message: types.Message, state: FSMContext):
     if message.chat.type != "private":
         return await message.reply("⚠️ Ця команда працює лише в особистих повідомленнях боту.")
