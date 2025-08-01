@@ -7,33 +7,26 @@ from aiogram.types import ChatPermissions
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram import F
 import asyncio
 
-# === Конфігурація ===
-API_TOKEN = os.getenv('API_TOKEN', '7739860939:AAFvk9wdbdpCJ5L17WSb7YkaORGU09LTsDE')
-DATA_FILE = Path("db.json")
-
-# === Логування ===
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === Ініціалізація ===
+API_TOKEN = os.getenv('API_TOKEN', 'YOUR_BOT_TOKEN')
+
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot=bot)
+dp = Dispatcher()
 
-# === FSM ===
-class ChannelSetup(StatesGroup):
-    waiting_for_channel = State()
-    waiting_for_group = State()
+DATA_FILE = Path("db.json")
 
-# === JSON-функції ===
 def load_user_channels():
     if DATA_FILE.exists():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            logger.warning("⚠️ db.json поврежден. Перезаписываю...")
+            logger.warning("⚠️ JSON пошкоджений або порожній. Створюю новий...")
             DATA_FILE.write_text("{}", encoding="utf-8")
             return {}
     return {}
@@ -43,123 +36,77 @@ def save_user_channels(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.flush()
 
-# === Команди ===
-@dp.message(Command('start'))
-async def cmd_start(message: types.Message, state: FSMContext):
-    await message.answer('Введите юзернейм канала (с @), на который нужно сделать обязательную подписку:')
-    await state.set_state(ChannelSetup.waiting_for_channel)
+class ChannelSetup(StatesGroup):
+    waiting_for_group_id = State()
 
-@dp.message(ChannelSetup.waiting_for_channel)
-async def process_channel_username(message: types.Message, state: FSMContext):
-    channel_username = message.text.strip()
-    if not channel_username.startswith('@'):
-        channel_username = '@' + channel_username
+@dp.message(Command("setchannel"))
+async def set_channel_command(message: types.Message, state: FSMContext):
+    if message.chat.type != "private":
+        return await message.reply("⚠️ Ця команда працює лише в особистих повідомленнях боту.")
+    
+    await message.answer("👥 Відправ ID групи (можеш переслати будь-яке повідомлення з чату).")
+    await state.set_state(ChannelSetup.waiting_for_group_id)
 
-    await state.update_data(channel=channel_username)
-    await message.answer(f'Канал {channel_username} принят. Теперь отправьте ID группы или перешлите сообщение из неё.')
-    await state.set_state(ChannelSetup.waiting_for_group)
-
-@dp.message(ChannelSetup.waiting_for_group)
+@dp.message(ChannelSetup.waiting_for_group_id)
 async def process_group_id(message: types.Message, state: FSMContext):
-    user_id = str(message.from_user.id)
-    data = await state.get_data()
-    channel_username = data.get('channel')
+    if not message.forward_from_chat or message.forward_from_chat.type not in ['group', 'supergroup']:
+        return await message.reply("❌ Це не схоже на переслане повідомлення з групи.")
 
-    group_id = None
+    group_id = message.forward_from_chat.id
+    await state.clear()
 
-    if message.forward_from_chat:
-        group_id = message.forward_from_chat.id
-    elif message.text:
-        if 't.me/' in message.text or 'telegram.me/' in message.text:
-            try:
-                username = message.text.split('/')[-1].split('?')[0]
-                chat_info = await bot.get_chat(f"@{username}")
-                group_id = chat_info.id
-            except Exception:
-                await message.answer('❌ Не удалось получить информацию о группе.')
-                return
-        elif message.text.isdigit():
-            group_id = int(message.text)
-        else:
-            await message.answer('❗ Отправьте ссылку на группу, ID или пересланное сообщение.')
-            return
-    else:
-        await message.answer('❗ Отправьте ссылку на группу, ID или пересланное сообщение.')
-        return
+    await message.answer(f"✅ Відмінно! Тепер введи юзернейм каналу для підписки (наприклад, @mychannel).")
 
-    try:
-        group_info = await bot.get_chat(group_id)
-        bot_member = await bot.get_chat_member(group_id, bot.id)
-
-        if bot_member.status not in ['administrator', 'creator']:
-            await message.answer('⚠️ Бот должен быть администратором в группе.')
-            await state.clear()
-            return
-
-        try:
-            await bot.get_chat(channel_username)
-        except Exception:
-            await message.answer(f'⚠️ Бот не имеет доступа к каналу {channel_username}.')
-            await state.clear()
-            return
-
-        # Загрузка и сохранение
+    @dp.message(F.text.startswith("@"))
+    async def process_channel_username(m: types.Message):
+        channel_username = m.text.strip()
         user_channels = load_user_channels()
-        if user_id not in user_channels:
-            user_channels[user_id] = {}
-
-        user_channels[user_id][str(group_id)] = channel_username
+        user_channels[str(group_id)] = channel_username
         save_user_channels(user_channels)
+        await m.answer(f"✅ Канал {channel_username} прив'язано до групи {group_id}!")
+        dp.message.unregister(process_channel_username)
 
-        await message.answer(f'✅ Готово!\nКанал: {channel_username}\nГруппа: {group_info.title}')
-        await state.clear()
-
-    except Exception as e:
-        logger.error(f"Ошибка при настройке: {e}")
-        await message.answer('❌ Не удалось сохранить настройки.')
-        await state.clear()
-
-# === Перевірка повідомлень ===
 @dp.message()
 async def check_subscription(message: types.Message):
     if message.chat.type not in ['group', 'supergroup']:
         return
 
-    user_id = str(message.from_user.id)
     chat_id = str(message.chat.id)
+    user_id = message.from_user.id
 
     user_channels = load_user_channels()
-    if user_id not in user_channels or chat_id not in user_channels[user_id]:
+    if chat_id not in user_channels:
         return
 
-    channel_username = user_channels[user_id][chat_id]
+    channel_username = user_channels[chat_id]
 
     try:
         await bot.get_chat(channel_username)
-        member = await bot.get_chat_member(channel_username, int(user_id))
+        member = await bot.get_chat_member(channel_username, user_id)
 
         if member.status in ['member', 'administrator', 'creator']:
-            return  # підписаний
+            return
 
         await message.delete()
+
         username = message.from_user.username
-        mention = f"@{username}" if username else f"пользователь {user_id}"
+        mention = f"@{username}" if username else f"користувач {user_id}"
         await bot.send_message(
             chat_id=message.chat.id,
-            text=f"🔒 {mention}, подпишитесь на канал {channel_username}, чтобы писать в этом чате."
+            text=f"🔒 {mention}, підпишіться на канал {channel_username}, щоб писати в цьому чаті."
         )
+
         await bot.restrict_chat_member(
             chat_id=message.chat.id,
-            user_id=message.from_user.id,
+            user_id=user_id,
             permissions=ChatPermissions(can_send_messages=False)
         )
 
     except Exception as e:
-        logger.error(f"Ошибка при проверке подписки: {e}")
+        logger.error(f"❌ Помилка перевірки підписки: {e}")
 
-# === Запуск ===
-if __name__ == '__main__':
-    async def main():
-        logger.info("✅ Бот запущен.")
-        await dp.start_polling(bot)
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
     asyncio.run(main())
