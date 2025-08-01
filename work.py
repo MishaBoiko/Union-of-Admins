@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramBadRequest
 import asyncio
 
-API_TOKEN = os.getenv("API_TOKEN", "ВАШ_ТОКЕН")
+API_TOKEN = '7739860939:AAFvk9wdbdpCJ5L17WSb7YkaORGU09LTsDE'
 
 bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(storage=MemoryStorage())
