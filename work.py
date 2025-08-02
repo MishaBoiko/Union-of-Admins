@@ -70,10 +70,10 @@ async def set_channel_username(message: Message, state: FSMContext):
     }
     save_db(data)
 
-    await message.answer(f"✅ Зв’язка оновлена!
-Група: <code>{group_id}</code>
-Канал: {channel_username}")
-    await state.clear()
+    await message.answer(f"""✅ Зв’язка оновлена!
+    Група: <code>{group_id}</code>
+    Канал: {channel_username}""")
+
 
 # Запуск
 async def main():
