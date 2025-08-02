@@ -97,3 +97,10 @@ async def check_subscription(message: types.Message):
         except Exception:
             pass
 
+# Запуск
+async def main():
+    await db.init_pool()
+    await dp.start_polling(bot, shutdown=on_shutdown)
+
+if __name__ == '__main__':
+    asyncio.run(main())
