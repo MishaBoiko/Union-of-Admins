@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 API_TOKEN = '7739860939:AAFvk9wdbdpCJ5L17WSb7YkaORGU09LTsDE'
 
 # Ініціалізація бота та диспетчера
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=API_TOKEN, parse_mode="HTML")
 dp = Dispatcher(storage=MemoryStorage())
 
 # Шлях до файлу з базою даних
@@ -32,47 +32,47 @@ def save_db(data):
 
 # Стани FSM
 class LinkGroup(StatesGroup):
-    waiting_for_group_id = State()
-    waiting_for_channel_username = State()
+    waiting_for_group = State()
+    waiting_for_channel = State()
 
-# Команда /start
+# Команда /start в особистці
 @dp.message(Command("start"))
-async def start_cmd(message: Message, state: FSMContext):
-    await message.answer("Надішли будь-яке повідомлення в групу, де доданий цей бот.")
-    await state.set_state(LinkGroup.waiting_for_group_id)
+async def cmd_start(message: Message, state: FSMContext):
+    await message.answer("Напиши команду /setgroup в тій групі, яку хочеш прив'язати.")
+    await state.set_state(LinkGroup.waiting_for_group)
 
-# Отримання групи через повідомлення
-@dp.message(LinkGroup.waiting_for_group_id, F.chat.type.in_(["group", "supergroup"]))
-async def handle_group_message(message: Message, state: FSMContext):
+# /setgroup у групі
+@dp.message(Command("setgroup"), F.chat.type.in_(["group", "supergroup"]))
+async def cmd_setgroup(message: Message, state: FSMContext):
     group_id = message.chat.id
-    await state.update_data(group_id=group_id)
-    await message.reply("Тепер надішли @username каналу (без лінку, лише @user).")
-    await state.set_state(LinkGroup.waiting_for_channel_username)
-
-# Отримання каналу та збереження зв’язки
-@dp.message(LinkGroup.waiting_for_channel_username, F.text.startswith("@"))
-async def handle_channel_username(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    await state.update_data(group_id=group_id, user_id=user_id)
+    await message.reply("Тепер повернись до особистих повідомлень з ботом і надішли @username каналу.")
+
+# Отримання @каналу в особистці
+@dp.message(LinkGroup.waiting_for_group, F.text.startswith("@"))
+async def set_channel_username(message: Message, state: FSMContext):
     channel_username = message.text.strip()
+    user_id = message.from_user.id
 
     data = load_db()
     fsm_data = await state.get_data()
     group_id = fsm_data.get("group_id")
 
     if not group_id:
-        await message.answer("Щось пішло не так. Спробуй знову через /start.")
+        await message.answer("Спочатку надішли /setgroup в групі, а потім введи канал.")
         return
 
-    # Оновлюємо зв’язку (видаляємо попередню для цього користувача)
+    # Записуємо нову зв'язку, видаляючи стару
     data[str(user_id)] = {
         "group_id": group_id,
         "channel_username": channel_username
     }
     save_db(data)
 
-    await message.answer(
-        f"Зв’язка збережена!\nГрупа: <code>{group_id}</code>\nКанал: {channel_username}"
-    )
+    await message.answer(f"✅ Зв’язка оновлена!
+Група: <code>{group_id}</code>
+Канал: {channel_username}")
     await state.clear()
 
 # Запуск
