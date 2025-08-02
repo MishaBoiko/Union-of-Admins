@@ -1,9 +1,9 @@
 import json
 import logging
 import os
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import ChatType, ChatMemberStatus
 import asyncio
 
 logging.basicConfig(level=logging.INFO)
@@ -24,17 +24,14 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# Тимчасове сховище для групи по user_id
 temp_links = {}
 
-# Команда /start у особистих повідомленнях
 @dp.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: types.Message):
     await message.answer("Напиши команду /setgroup у групі, яку хочеш прив'язати.")
 
-# Команда /setgroup у групі
-@dp.message(Command("setgroup"), F.chat.type.in_(["group", "supergroup"]))
-async def cmd_setgroup(message: Message):
+@dp.message(Command("setgroup"), F.chat.type.in_([ChatType.GROUP, ChatType.SUPERGROUP]))
+async def cmd_setgroup(message: types.Message):
     group_id = message.chat.id
     user_id = message.from_user.id
     temp_links[user_id] = group_id
@@ -47,9 +44,8 @@ async def cmd_setgroup(message: Message):
 
     await message.reply("Перевір особисті повідомлення — я написав інструкції.")
 
-# Отримання @каналу в особистих повідомленнях
 @dp.message(F.text.startswith("@"))
-async def set_channel_username(message: Message):
+async def set_channel_username(message: types.Message):
     user_id = message.from_user.id
     group_id = temp_links.get(user_id)
 
@@ -59,10 +55,7 @@ async def set_channel_username(message: Message):
 
     channel_username = message.text.strip()
     data = load_db()
-    data[str(user_id)] = {
-        "group_id": group_id,
-        "channel_username": channel_username
-    }
+    data[str(group_id)] = channel_username  # зберігаємо за group_id, щоб можна було швидко знайти канал для групи
     save_db(data)
 
     await message.answer(
@@ -72,8 +65,35 @@ async def set_channel_username(message: Message):
     )
     del temp_links[user_id]
 
-async def main():
-    await dp.start_polling(bot)
+# Перевірка повідомлень у групі
+@dp.message(F.chat.type.in_([ChatType.GROUP, ChatType.SUPERGROUP]))
+async def check_subscription(message: types.Message):
+    group_id = message.chat.id
+    user_id = message.from_user.id
+    data = load_db()
+    channel_username = data.get(str(group_id))
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    if not channel_username:
+        # Якщо канал не заданий для групи — нічого не перевіряємо
+        return
+
+    try:
+        member = await bot.get_chat_member(chat_id=channel_username, user_id=user_id)
+    except Exception:
+        # Якщо бот не може отримати інформацію (наприклад, канал закритий або немає прав)
+        # можна або пропустити, або видалити повідомлення
+        await message.delete()
+        return
+
+    # Перевіряємо, що користувач підписаний (member.status != 'left' і != 'kicked')
+    if member.status in ['left', 'kicked']:
+        # Видаляємо повідомлення і пишемо користувачу в приватні
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        try:
+            await bot.send_message(user_id, f"Ви повинні підписатися на канал {channel_username}, щоб писати в групі.")
+        except Exception:
+            pass
+
